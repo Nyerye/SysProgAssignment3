@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Ensure everything is built using the Makefile
+make all || { echo "Build failed"; exit 1; }
+
+# Executable names
+SHM_MANAGER_EXE="bin/shm_manager"
+SERVER_EXE="bin/server"
+CLIENT_EXE="bin/client"
+
+# Open new terminals side by side (gnome-terminal example)
+
+# Terminal 1: Shared Memory Manager (left side) - starts immediately
+echo "Starting Shared Memory Manager..."
+gnome-terminal --geometry=80x24+0+0 -- bash -c "./$SHM_MANAGER_EXE; exec bash"
+
+# Terminal 2: Server (middle) - waits 15 seconds
+echo "Starting Server (will start in 15 seconds)..."
+gnome-terminal --geometry=80x24+800+0 -- bash -c "sleep 15; ./$SERVER_EXE; exec bash"
+
+# Terminal 3: Client (right side) - waits 15 seconds
+echo "Starting Client (will start in 15 seconds)..."
+gnome-terminal --geometry=80x24+1600+0 -- bash -c "sleep 15; ./$CLIENT_EXE; exec bash"
+
+echo ""
+echo "All terminals opened!"
+echo "shm_manager: Running now (create shared memory!)"
+echo "server & client: Will start in 15 seconds..."
