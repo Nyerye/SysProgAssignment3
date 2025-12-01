@@ -1,22 +1,22 @@
 //
-// FILE               : shm_manager.c
-// PROJECT            : SysProg Assign 3
-// PROGRAMMER         : Bibi Murwared Enayat Zada
-// FIRST VERSION      : 2025-11-14
-// DESCRIPTION        : This program manages the shared memory for Assignment 3.
-//                      It creates shared memory and a semaphore, allows reading
-//                      the stored trips, and destroys the shared memory using
-//                      the required rogue write.
+//FILE               : shm_manager.c
+//PROJECT            : SysProg Assign 3
+//PROGRAMMER         : Bibi Murwared Enayat Zada
+//FIRST VERSION      : 2025-11-14
+//DESCRIPTION        : This program manages the shared memory for Assignment 3.
+//                     It creates shared memory and a semaphore, allows reading
+//                     the stored trips, and destroys the shared memory using
+//                     the required rogue write.
 //
 
 #include "ipc_shared.h"
 
-// Global variables
+//Global variables
 int shmid = -1;
 int semid = -1;
 SharedMemory *shm = NULL;
 
-// Function prototypes
+//Function prototypes
 void display_menu();
 void create_shared_memory();
 void read_shared_memory();
@@ -25,7 +25,7 @@ void cleanup();
 int validate_destination(char *dest);
 int ask_yes_no(const char *msg);
 
-int main() {
+int main(void) {
     int choice;
 
     printf("=== Shared Memory Manager ===\n\n");
@@ -63,12 +63,12 @@ int main() {
 }
 
 //
-// FUNCTION     : display_menu
-// DESCRIPTION  : Prints the menu options
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : display_menu
+//DESCRIPTION  : Prints the menu options
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
-void display_menu() {
+void display_menu(void) {
     printf("\n=== Shared Memory Manager Menu ===\n");
     printf("1. Create shared memory\n");
     printf("2. Read shared memory\n");
@@ -78,25 +78,25 @@ void display_menu() {
 }
 
 //
-// FUNCTION     : create_shared_memory
-// DESCRIPTION  : Creates shared memory and semaphore, initializes trips
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : create_shared_memory
+//DESCRIPTION  : Creates shared memory and semaphore, initializes trips
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
-void create_shared_memory() {
+void create_shared_memory(void) {
     if (shmid != -1) {
         printf("Shared memory already exists!\n");
         return;
     }
 
-    // Create shared memory
+    //Create shared memory
     shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS | IPC_CREAT);
     if (shmid == -1) {
         perror("Unable to create shared memory");
         return;
     }
 
-    // Attach shared memory
+    //Attach shared memory
     shm = (SharedMemory *)shmat(shmid, NULL, 0);
     if (shm == (void *)-1) {
         perror("Failed to attach shared memory");
@@ -105,7 +105,7 @@ void create_shared_memory() {
         return;
     }
 
-    // Create semaphore
+    //Create semaphore
     semid = create_semaphore(SEM_KEY);
     if (semid == -1) {
         shmdt(shm);
@@ -116,7 +116,7 @@ void create_shared_memory() {
         return;
     }
 
-    // Initialize trips
+    //Initialize trips
     sem_lock(semid);
     shm->tripCount = 0;
     for (int i = 0; i < MAX_TRIPS; i++) {
@@ -126,7 +126,7 @@ void create_shared_memory() {
 
     printf("Shared memory and semaphore created successfully.\n");
 
-    // Ask to add trips
+    //Ask to add trips
     if (!ask_yes_no("\nWould you like to add trips now")) {
         shmdt(shm);
         return;
@@ -141,7 +141,7 @@ void create_shared_memory() {
         Trip newTrip;
         char input[100];
 
-        // Get destination
+        //Get destination
         while (1) {
             printf("\nEnter destination: ");
             fgets(input, sizeof(input), stdin);
@@ -161,7 +161,7 @@ void create_shared_memory() {
             break;
         }
 
-        // Get price
+        //Get price
         while (1) {
             printf("Enter price: ");
             fgets(input, sizeof(input), stdin);
@@ -176,7 +176,7 @@ void create_shared_memory() {
 
         newTrip.active = 1;
 
-        // Add trip to shared memory
+        //Add trip to shared memory
         sem_lock(semid);
         shm->trips[shm->tripCount] = newTrip;
         shm->tripCount++;
@@ -192,12 +192,12 @@ void create_shared_memory() {
 }
 
 //
-// FUNCTION     : read_shared_memory
-// DESCRIPTION  : Displays all trips in shared memory
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : read_shared_memory
+//DESCRIPTION  : Displays all trips in shared memory
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
-void read_shared_memory() {
+void read_shared_memory(void) {
     shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS);
     if (shmid == -1) {
         printf("Unable to connect to shared memory.\n");
@@ -239,12 +239,12 @@ void read_shared_memory() {
 }
 
 //
-// FUNCTION     : kill_shared_memory
-// DESCRIPTION  : Performs rogue write and deletes shared memory
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : kill_shared_memory
+//DESCRIPTION  : Performs rogue write and deletes shared memory
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
-void kill_shared_memory() {
+void kill_shared_memory(void) {
     if (shmid == -1) {
         shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS);
         if (shmid == -1) {
@@ -269,7 +269,7 @@ void kill_shared_memory() {
 
     printf("\nAttempting rogue write to kill shared memory...\n");
 
-    // Attempt to write to out-of-range memory address
+    //Attempt to write to out-of-range memory address
     char *rogue_ptr = (char *)shm + sizeof(SharedMemory) + 1000;
     printf("Writing to address: %p (out of bounds)\n", (void *)rogue_ptr);
 
@@ -289,12 +289,12 @@ void kill_shared_memory() {
 }
 
 //
-// FUNCTION     : cleanup
-// DESCRIPTION  : Removes shared memory and semaphore
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : cleanup
+//DESCRIPTION  : Removes shared memory and semaphore
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
-void cleanup() {
+void cleanup(void) {
     if (shm != NULL) {
         shmdt(shm);
     }
@@ -309,10 +309,10 @@ void cleanup() {
 }
 
 //
-// FUNCTION     : validate_destination
-// DESCRIPTION  : Checks if destination contains only letters and spaces
-// PARAMETERS   : char *dest - destination string
-// RETURNS      : 1 if valid, 0 if invalid
+//FUNCTION     : validate_destination
+//DESCRIPTION  : Checks if destination contains only letters and spaces
+//PARAMETERS   : char *dest - destination string
+//RETURNS      : 1 if valid, 0 if invalid
 //
 int validate_destination(char *dest) {
     if (strlen(dest) == 0)
@@ -327,10 +327,10 @@ int validate_destination(char *dest) {
 }
 
 //
-// FUNCTION     : ask_yes_no
-// DESCRIPTION  : Prompts user for yes/no answer
-// PARAMETERS   : const char *msg - prompt message
-// RETURNS      : 1 for yes, 0 for no
+//FUNCTION     : ask_yes_no
+//DESCRIPTION  : Prompts user for yes/no answer
+//PARAMETERS   : const char *msg - prompt message
+//RETURNS      : 1 for yes, 0 for no
 //
 int ask_yes_no(const char *msg) {
     char input[10];

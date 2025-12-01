@@ -1,22 +1,22 @@
 //
-// FILE          : client.c
-// PROJECT       : SysProg Assignment 3
-// PROGRAMMER    : Josiah Williams
-// FIRST VERSION : 2025-11-08
-// DESCRIPTION   : TCP client that gathers trip and client information,
-//                 reads available trips from shared memory, and sends
-//                 data to server via socket.
+//FILE          : client.c
+//PROJECT       : SysProg Assignment 3
+//PROGRAMMER    : Josiah Williams
+//FIRST VERSION : 2025-11-08
+//DESCRIPTION   : TCP client that gathers trip and client information,
+//                reads available trips from shared memory, and sends
+//                data to server via socket.
 //
 
 #include "ipc_shared.h"
 
-// Global variables
+//Global variables
 int client_socket = -1;
 int shmid = -1;
 int semid = -1;
 SharedMemory *shm = NULL;
 
-// Function prototypes
+//Function prototypes
 void cleanup();
 int validate_name(char *name);
 int validate_age(int age);
@@ -25,10 +25,10 @@ void get_client_data(ClientMessage *msg);
 int main(int argc, char *argv[]) {
     ClientMessage msg;
     struct sockaddr_in server_addr;
-    char server_ip[20] = "127.0.0.1";  // Default localhost
+    char server_ip[20] = "127.0.0.1";  //Default localhost
     char choice;
 
-    // Check for server IP argument
+    //Check for server IP argument
     if (argc > 1) {
         strncpy(server_ip, argv[1], sizeof(server_ip) - 1);
     }
@@ -36,21 +36,21 @@ int main(int argc, char *argv[]) {
     printf("=== Client (Writer) ===\n");
     printf("Starting...\n\n");
 
-    // Get shared memory
+    //Get shared memory
     shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS);
     if (shmid == -1) {
         printf("Error: Please start shared memory manager first!\n");
         exit(1);
     }
 
-    // Attach shared memory
+    //Attach shared memory
     shm = (SharedMemory *)shmat(shmid, NULL, 0);
     if (shm == (void *)-1) {
         perror("Failed to attach shared memory");
         exit(1);
     }
 
-    // Get semaphore
+    //Get semaphore
     semid = get_semaphore(SEM_KEY);
     if (semid == -1) {
         printf("Semaphore not found! Please start shared memory manager first.\n");
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 
     printf("Connected to shared memory.\n");
 
-    // Create socket
+    //Create socket
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (client_socket == -1) {
         perror("Socket creation failed");
@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Configure server address
+    //Configure server address
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(SERVER_PORT);
@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Connect to server
+    //Connect to server
     printf("Connecting to server at %s:%d...\n", server_ip, SERVER_PORT);
 
     if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
@@ -91,13 +91,13 @@ int main(int argc, char *argv[]) {
     printf("Connected to server successfully!\n\n");
     printf("Commands: Type 'exit' to quit, 'total' to request total display\n\n");
 
-    // Main client loop
+    //Main client loop
     while (1) {
-        // Get client data
+        //Get client data
         get_client_data(&msg);
-        msg.signal = 0;  // Normal data message
+        msg.signal = 0;  //Normal data message
 
-        // Send message to server
+        //Send message to server
         if (send(client_socket, &msg, sizeof(ClientMessage), 0) == -1) {
             perror("Failed to send data to server");
             cleanup();
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
 
         printf("\nClient data sent successfully!\n");
 
-        // Ask if more data needs to be entered
+        //Ask if more data needs to be entered
         printf("\nEnter more client data? (y/n/total/exit): ");
         char input[20];
         fgets(input, sizeof(input), stdin);
@@ -114,14 +114,14 @@ int main(int argc, char *argv[]) {
 
         if (strlen(input) > 0) {
             if (strcmp(input, "exit") == 0) {
-                // Send F1 signal
+                //Send F1 signal
                 memset(&msg, 0, sizeof(ClientMessage));
                 msg.signal = SIGNAL_F1;
                 send(client_socket, &msg, sizeof(ClientMessage), 0);
                 printf("Exiting...\n");
                 break;
             } else if (strcmp(input, "total") == 0) {
-                // Send F2 signal
+                //Send F2 signal
                 memset(&msg, 0, sizeof(ClientMessage));
                 msg.signal = SIGNAL_F2;
                 send(client_socket, &msg, sizeof(ClientMessage), 0);
@@ -143,10 +143,10 @@ int main(int argc, char *argv[]) {
 }
 
 //
-// FUNCTION     : cleanup
-// DESCRIPTION  : Cleans up resources
-// PARAMETERS   : None
-// RETURNS      : Nothing
+//FUNCTION     : cleanup
+//DESCRIPTION  : Cleans up resources
+//PARAMETERS   : None
+//RETURNS      : Nothing
 //
 void cleanup() {
     if (shm != NULL) {
@@ -158,10 +158,10 @@ void cleanup() {
 }
 
 //
-// FUNCTION     : validate_name
-// DESCRIPTION  : Checks if name contains only letters and spaces
-// PARAMETERS   : char *name - name string to validate
-// RETURNS      : 1 if valid, 0 if invalid
+//FUNCTION     : validate_name
+//DESCRIPTION  : Checks if name contains only letters and spaces
+//PARAMETERS   : char *name - name string to validate
+//RETURNS      : 1 if valid, 0 if invalid
 //
 int validate_name(char *name) {
     if (strlen(name) == 0) {
@@ -178,27 +178,27 @@ int validate_name(char *name) {
 }
 
 //
-// FUNCTION     : validate_age
-// DESCRIPTION  : Checks if age is within valid range
-// PARAMETERS   : int age - age to validate
-// RETURNS      : 1 if valid, 0 if invalid
+//FUNCTION     : validate_age
+//DESCRIPTION  : Checks if age is within valid range
+//PARAMETERS   : int age - age to validate
+//RETURNS      : 1 if valid, 0 if invalid
 //
 int validate_age(int age) {
     return age >= MIN_AGE && age <= MAX_AGE;
 }
 
 //
-// FUNCTION     : get_client_data
-// DESCRIPTION  : Gets client and trip information from user
-// PARAMETERS   : ClientMessage *msg - structure to store client data
-// RETURNS      : Nothing
+//FUNCTION     : get_client_data
+//DESCRIPTION  : Gets client and trip information from user
+//PARAMETERS   : ClientMessage *msg - structure to store client data
+//RETURNS      : Nothing
 //
 void get_client_data(ClientMessage *msg) {
     char fullName[MAX_FULLNAME];
     char *token;
     char input[200];
 
-    // Get first and last name
+    //Get first and last name
     while (1) {
         printf("\nEnter client name (First Last): ");
         fgets(fullName, sizeof(fullName), stdin);
@@ -209,7 +209,7 @@ void get_client_data(ClientMessage *msg) {
             continue;
         }
 
-        // Split into first and last name
+        //Split into first and last name
         token = strtok(fullName, " ");
         if (token == NULL) {
             printf("Please enter both first and last name!\n");
@@ -229,7 +229,7 @@ void get_client_data(ClientMessage *msg) {
         break;
     }
 
-    // Get age
+    //Get age
     while (1) {
         printf("Enter age: ");
         fgets(input, sizeof(input), stdin);
@@ -248,7 +248,7 @@ void get_client_data(ClientMessage *msg) {
         break;
     }
 
-    // Get address
+    //Get address
     while (1) {
         printf("Enter address: ");
         fgets(msg->address, MAX_ADDRESS, stdin);
@@ -262,7 +262,7 @@ void get_client_data(ClientMessage *msg) {
         break;
     }
 
-    // Display available trips from shared memory
+    //Display available trips from shared memory
     printf("\n=== Available Trips ===\n");
 
     sem_lock(semid);
@@ -298,7 +298,7 @@ void get_client_data(ClientMessage *msg) {
             continue;
         }
 
-        // Copy trip information
+        //Copy trip information
         strncpy(msg->destination, shm->trips[tripChoice - 1].destination, MAX_NAME - 1);
         msg->destination[MAX_NAME - 1] = '\0';
         msg->tripPrice = shm->trips[tripChoice - 1].price;
@@ -308,7 +308,7 @@ void get_client_data(ClientMessage *msg) {
 
     sem_unlock(semid);
 
-    // Get number of people
+    //Get number of people
     while (1) {
         printf("Enter number of people: ");
         fgets(input, sizeof(input), stdin);
@@ -323,7 +323,7 @@ void get_client_data(ClientMessage *msg) {
             continue;
         }
 
-        // Calculate total price
+        //Calculate total price
         msg->tripPrice *= msg->numPeople;
 
         break;
