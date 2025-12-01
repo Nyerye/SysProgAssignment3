@@ -4,9 +4,9 @@
 //PROGRAMMER         : Bibi Murwared Enayat Zada
 //FIRST VERSION      : 2025-11-14
 //DESCRIPTION        : This program manages the shared memory for Assignment 3.
-//                     It creates shared memory and a semaphore, allows reading
-//                     the stored trips, and destroys the shared memory using
-//                     the required rogue write.
+//                    It creates shared memory and a semaphore, allows reading
+//                    the stored trips, and destroys the shared memory using
+//                    the required rogue write.
 //
 
 #include "ipc_shared.h"
@@ -89,7 +89,7 @@ void create_shared_memory(void) {
         return;
     }
 
-    //Create shared memory
+    //Create (or reuse) shared memory
     shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS | IPC_CREAT);
     if (shmid == -1) {
         perror("Unable to create shared memory");
@@ -102,18 +102,33 @@ void create_shared_memory(void) {
         perror("Failed to attach shared memory");
         shmctl(shmid, IPC_RMID, NULL);
         shmid = -1;
+        shm = NULL;
         return;
     }
 
-    //Create semaphore
+    //Create semaphore or get existing one
     semid = create_semaphore(SEM_KEY);
     if (semid == -1) {
-        shmdt(shm);
-        shmctl(shmid, IPC_RMID, NULL);
-        shmid = -1;
-        shm = NULL;
-        printf("Failed to create semaphore\n");
-        return;
+        if (errno == EEXIST) {
+            //Existsing semaphore, try to get it
+            semid = get_semaphore(SEM_KEY);
+            if (semid == -1) {
+                shmdt(shm);
+                shmctl(shmid, IPC_RMID, NULL);
+                shmid = -1;
+                shm = NULL;
+                printf("Failed to get existing semaphore\n");
+                return;
+            }
+        } else {
+            //Erro real
+            shmdt(shm);
+            shmctl(shmid, IPC_RMID, NULL);
+            shmid = -1;
+            shm = NULL;
+            printf("Failed to create semaphore\n");
+            return;
+        }
     }
 
     //Initialize trips
@@ -139,57 +154,40 @@ void create_shared_memory(void) {
         }
 
         Trip newTrip;
-        char input[100];
+        memset(&newTrip, 0, sizeof(Trip));
 
-        //Get destination
-        while (1) {
-            printf("\nEnter destination: ");
-            fgets(input, sizeof(input), stdin);
-            input[strcspn(input, "\n")] = 0;
+        printf("\nEnter destination: ");
+        fgets(newTrip.destination, MAX_NAME, stdin);
+        newTrip.destination[strcspn(newTrip.destination, "\n")] = '\0';
 
-            strncpy(newTrip.destination, input, MAX_NAME - 1);
-            newTrip.destination[MAX_NAME - 1] = '\0';
-
-            if (strlen(newTrip.destination) == 0) {
-                printf("Destination cannot be empty!\n");
-                continue;
-            }
-            if (!validate_destination(newTrip.destination)) {
-                printf("Invalid destination. Letters and spaces only.\n");
-                continue;
-            }
-            break;
+        if (!validate_destination(newTrip.destination)) {
+            printf("Invalid destination!\n");
+            continue;
         }
 
-        //Get price
-        while (1) {
-            printf("Enter price: ");
-            fgets(input, sizeof(input), stdin);
-
-            float priceVal;
-            if (sscanf(input, "%f", &priceVal) == 1 && priceVal > 0) {
-                newTrip.price = priceVal;
-                break;
-            }
-            printf("Invalid price. Please enter a positive number.\n");
+        printf("Enter price: ");
+        if (scanf("%f", &newTrip.price) != 1 || newTrip.price <= 0) {
+            printf("Invalid price!\n");
+            while (getchar() != '\n'); //clear buffer
+            continue;
         }
+        while (getchar() != '\n'); //clear buffer
 
-        newTrip.active = 1;
-
-        //Add trip to shared memory
         sem_lock(semid);
-        shm->trips[shm->tripCount] = newTrip;
+        int idx = shm->tripCount;
+        shm->trips[idx] = newTrip;
+        shm->trips[idx].active = 1;
         shm->tripCount++;
         sem_unlock(semid);
 
-        printf("Trip added successfully!\n");
-
-        if (!ask_yes_no("Add another trip"))
+        if (!ask_yes_no("Add another trip")) {
             break;
+        }
     }
 
     shmdt(shm);
 }
+
 
 //
 //FUNCTION     : read_shared_memory

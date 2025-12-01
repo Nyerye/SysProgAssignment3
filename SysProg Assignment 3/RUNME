@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Navigate to the project root (directory of this script)
+cd "$(dirname "$0")" || exit 1
+
 # Ensure everything is built using the Makefile
 make all || { echo "Build failed"; exit 1; }
 
@@ -8,21 +11,26 @@ SHM_MANAGER_EXE="bin/shm_manager"
 SERVER_EXE="bin/server"
 CLIENT_EXE="bin/client"
 
-# Open new terminals side by side (gnome-terminal example)
+# Ensure executables exist
+if [[ ! -x "$SHM_MANAGER_EXE" || ! -x "$SERVER_EXE" || ! -x "$CLIENT_EXE" ]]; then
+    echo "Error: one or more executables not found in bin/"
+    exit 1
+fi
 
-# Terminal 1: Shared Memory Manager (left side) - starts immediately
+# Launch programs in separate terminals (gnome-terminal example)
 echo "Starting Shared Memory Manager..."
-gnome-terminal --geometry=80x24+0+0 -- bash -c "./$SHM_MANAGER_EXE; exec bash"
+gnome-terminal --geometry=80x24+0+0 -- bash -c "./bin/shm_manager; exec bash"
 
-# Terminal 2: Server (middle) - waits 15 seconds
-echo "Starting Server (will start in 15 seconds)..."
-gnome-terminal --geometry=80x24+800+0 -- bash -c "sleep 15; ./$SERVER_EXE; exec bash"
+echo "Starting Server..."
+gnome-terminal --geometry=80x24+500+0 -- bash -c "./bin/server; exec bash"
 
-# Terminal 3: Client (right side) - waits 15 seconds
-echo "Starting Client (will start in 15 seconds)..."
-gnome-terminal --geometry=80x24+1600+0 -- bash -c "sleep 15; ./$CLIENT_EXE; exec bash"
+echo "Starting Client..."
+gnome-terminal --geometry=80x24+1000+0 -- bash -c "./bin/client; exec bash"
+
 
 echo ""
-echo "All terminals opened!"
-echo "shm_manager: Running now (create shared memory!)"
-echo "server & client: Will start in 15 seconds..."
+echo "All terminals opened successfully!"
+echo "shm_manager: running now — create shared memory first."
+echo "server: starts in 15s — begins listening."
+echo "client: starts in 15s — connect and send data."
+echo ""

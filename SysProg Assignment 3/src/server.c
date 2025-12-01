@@ -4,17 +4,22 @@
 //PROGRAMMER    : Nicholas Reilly
 //FIRST VERSION : Nov 19 2025
 //DESCRIPTION   : TCP server that accepts multiple client connections,
-//                receives client data, and displays it.
-//                Uses fork() to handle multiple clients.
+//               receives client data, and displays it.
+//               Uses fork() to handle multiple clients.
+//               [NCURSES] Enhanced with ncurses GUI windows.
 //
 
 #include "ipc_shared.h"
+#include <ncurses.h>  //[NCURSES]
 
 //Global variables
 float totalPrice = 0.0;
 int recordCount = 0;
 volatile sig_atomic_t running = 1;
 int server_socket = -1;
+
+//[NCURSES] Global ncurses windows
+WINDOW *display_win, *input_win;
 
 //Function prototypes
 void signal_handler(int signum);
@@ -28,7 +33,7 @@ int main(void) {
     int client_socket;
     int client_count = 0;
 
-    //Set up signal handler
+    //Set up signal handler (Ctrl+C encerra o servidor)
     struct sigaction sa;
     sa.sa_handler = signal_handler;
     sigemptyset(&sa.sa_mask);
@@ -39,12 +44,6 @@ int main(void) {
         exit(1);
     }
 
-    //Ignore SIGCHLD to prevent zombie processes
-    signal(SIGCHLD, SIG_IGN);
-
-    printf("=== Server (Reader) ===\n");
-    printf("Starting...\n\n");
-
     //Create socket
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket == -1) {
@@ -52,78 +51,95 @@ int main(void) {
         exit(1);
     }
 
-    //Set socket options to reuse address
+    //Reuse address
     int opt = 1;
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        perror("Setsockopt failed");
+        perror("setsockopt");
         close(server_socket);
         exit(1);
     }
 
     //Configure server address
     memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
+    server_addr.sin_family      = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_port        = htons(SERVER_PORT);
 
-    //Bind socket
+    //Bind
     if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         perror("Bind failed");
         close(server_socket);
         exit(1);
     }
 
-    //Listen for connections
+    //Listen
     if (listen(server_socket, BACKLOG) == -1) {
         perror("Listen failed");
         close(server_socket);
         exit(1);
     }
 
-    printf("Server listening on port %d...\n", SERVER_PORT);
-    printf("Waiting for client connections...\n");
-    printf("Press Ctrl+C to stop server.\n\n");
+    //===NCURSES with no fork===
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    refresh();
 
-    //Main accept loop
+    int display_height = DISPLAY_HEIGHT;
+    int input_height   = INPUT_HEIGHT;
+
+    display_win = newwin(display_height, COLS, 0, 0);
+    input_win   = newwin(input_height,  COLS, display_height, 0);
+    scrollok(display_win, TRUE);
+    box(display_win, 0, 0);
+    box(input_win, 0, 0);
+        
+    keypad(input_win, TRUE);
+
+    //Initial messages
+    wprintw(display_win, "Server listening on port %d...\n", SERVER_PORT);
+    wprintw(display_win, "Waiting for client connections...\n\n");
+    wprintw(input_win, "Server running. Use Ctrl+C to stop.\n");
+    wrefresh(display_win);
+    wrefresh(input_win);
+
     while (running) {
-        client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_len);
+        client_len = sizeof(client_addr);
 
+        client_socket = accept(server_socket,
+                               (struct sockaddr *)&client_addr,
+                               &client_len);
         if (client_socket == -1) {
             if (errno == EINTR) {
-                continue;  //Interrupted by signal
+                //Interrupted by signal, continue loop to check running flag
+                continue;
             }
-            perror("Accept failed");
+            wprintw(display_win, "Accept failed: %s\n", strerror(errno));
+            wrefresh(display_win);
             continue;
         }
 
         client_count++;
-        printf("Client %d connected from %s\n",
-               client_count,
-               inet_ntoa(client_addr.sin_addr));
+        wprintw(display_win, "Client %d connected from %s\n",
+                client_count,
+                inet_ntoa(client_addr.sin_addr));
+        wrefresh(display_win);
 
-        //Fork to handle client
-        pid_t pid = fork();
+        //Handle client in the main process (no fork)
+        handle_client(client_socket, client_count);
 
-        if (pid == 0) {
-            //Child process
-            close(server_socket);  //Child doesn't need server socket
-            handle_client(client_socket, client_count);
-            close(client_socket);
-            exit(0);
-        } else if (pid > 0) {
-            //Parent process
-            close(client_socket);  //Parent doesn't need client socket
-        } else {
-            perror("Fork failed");
-            close(client_socket);
-        }
+        close(client_socket);
+        wprintw(display_win, "Client %d finished.\n", client_count);
+        wrefresh(display_win);
     }
 
     //Cleanup
     close(server_socket);
-
+    endwin();
     return 0;
 }
+
 
 //
 //FUNCTION     : signal_handler
@@ -141,6 +157,7 @@ void signal_handler(int signum) {
             close(server_socket);
         }
 
+        endwin(); //[NCURSES]
         exit(0);
     }
 }
@@ -152,7 +169,8 @@ void signal_handler(int signum) {
 //RETURNS      : Nothing
 //
 void display_client(ClientMessage *msg) {
-    printf("Client%d | %s %s | Age:%d | %s | %s | People:%d | $%.2f\n",
+    //[NCURSES] Use ncurses output
+    wprintw(display_win, "Client%d | %s %s | Age:%d | %s | %s | People:%d | $%.2f\n",
            msg->clientId,
            msg->firstName,
            msg->lastName,
@@ -161,6 +179,7 @@ void display_client(ClientMessage *msg) {
            msg->destination,
            msg->numPeople,
            msg->tripPrice);
+    wrefresh(display_win);
 
     totalPrice += msg->tripPrice;
     recordCount++;
@@ -175,13 +194,18 @@ void display_client(ClientMessage *msg) {
 void show_total() {
     printf("\n=== SUMMARY ===\n");
     printf("Records: %d | Total: $%.2f\n\n", recordCount, totalPrice);
+
+    //[NCURSES] Also show in ncurses input window
+    wprintw(input_win, "=== SUMMARY ===\n");
+    wprintw(input_win, "Records: %d | Total: $%.2f\n", recordCount, totalPrice);
+    wrefresh(input_win);
 }
 
 //
 //FUNCTION     : handle_client
 //DESCRIPTION  : Handles communication with a connected client
 //PARAMETERS   : int client_socket - socket descriptor for client
-//               int client_num - client identifier number
+//              int client_num - client identifier number
 //RETURNS      : Nothing
 //
 void handle_client(int client_socket, int client_num) {
@@ -194,19 +218,22 @@ void handle_client(int client_socket, int client_num) {
         if (bytes_received <= 0) {
             //Client disconnected or error
             if (bytes_received == 0) {
-                printf("Client %d disconnected\n", client_num);
+                wprintw(display_win, "Client %d disconnected\n", client_num);
             } else {
-                printf("Error receiving from Client %d\n", client_num);
+                wprintw(display_win, "Error receiving from Client %d\n", client_num);
             }
+            wrefresh(display_win);
             break;
         }
 
         //Check for control signals
         if (msg.signal == SIGNAL_F1) {
-            printf("Client %d sent exit signal\n", client_num);
+            wprintw(display_win, "Client %d sent exit signal\n", client_num);
+            wrefresh(display_win);
             break;
         } else if (msg.signal == SIGNAL_F2) {
-            printf("Client %d requested total display\n", client_num);
+            wprintw(display_win, "Client %d requested total display\n", client_num);
+            wrefresh(display_win);
             show_total();
         } else {
             //Normal data message

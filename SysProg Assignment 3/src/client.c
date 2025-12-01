@@ -4,172 +4,253 @@
 //PROGRAMMER    : Josiah Williams
 //FIRST VERSION : 2025-11-08
 //DESCRIPTION   : TCP client that gathers trip and client information,
-//                reads available trips from shared memory, and sends
-//                data to server via socket.
+//               reads available trips from shared memory, and sends
+//               data to server via socket.
+//               [NCURSES] Enhanced with ncurses GUI windows.
 //
 
 #include "ipc_shared.h"
+#include <ncurses.h>     //[NCURSES]
 
+//----------------------------------------------------
 //Global variables
+//----------------------------------------------------
 int client_socket = -1;
-int shmid = -1;
-int semid = -1;
+int shmid         = -1;
+int semid         = -1;
 SharedMemory *shm = NULL;
 
-//Function prototypes
-void cleanup();
-int validate_name(char *name);
-int validate_age(int age);
-void get_client_data(ClientMessage *msg);
+//[NCURSES] Global ncurses windows
+WINDOW *display_win;
+WINDOW *input_win;
 
-int main(int argc, char *argv[]) {
+//----------------------------------------------------
+//Function prototypes
+//----------------------------------------------------
+void cleanup(void);
+int  validate_name(char *name);
+int  validate_age(int age);
+void get_client_data(ClientMessage *msg);
+void reset_input_window(void);
+
+//
+//FUNCTION     : main
+//DESCRIPTION  : Entry point for the TCP client.
+//              Connects to shared memory and server, then
+//              enters ncurses-based interaction loop.
+//PARAMETERS   : int argc, char *argv[] - optional server IP
+//RETURNS      : int - exit code
+//
+int main(int argc, char *argv[])
+{
     ClientMessage msg;
     struct sockaddr_in server_addr;
-    char server_ip[20] = "127.0.0.1";  //Default localhost
-    char choice;
+    char server_ip[20] = "127.0.0.1";    //default localhost
+    char cont_input[32];
 
-    //Check for server IP argument
+    //Optional server IP from command line
     if (argc > 1) {
         strncpy(server_ip, argv[1], sizeof(server_ip) - 1);
+        server_ip[sizeof(server_ip) - 1] = '\0';
     }
 
     printf("=== Client (Writer) ===\n");
-    printf("Starting...\n\n");
+    printf("Starting...\n");
 
-    //Get shared memory
+    //[NCURSES] Initialize ncurses interface
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    refresh();
+
+    int display_height = DISPLAY_HEIGHT;
+    int input_height   = INPUT_HEIGHT;
+
+    display_win = newwin(display_height, COLS, 0, 0);
+    input_win   = newwin(input_height,  COLS, display_height, 0);
+
+    scrollok(display_win, TRUE);
+    box(display_win, 0, 0);
+    box(input_win, 0, 0);
+    keypad(input_win, TRUE);     //F1/F2 handled on this window
+
+    wrefresh(display_win);
+    wrefresh(input_win);
+
+    //--------------------------------------------------
+    //Attach to shared memory & semaphore
+    //--------------------------------------------------
     shmid = shmget(SHM_KEY, sizeof(SharedMemory), PERMISSIONS);
     if (shmid == -1) {
-        printf("Error: Please start shared memory manager first!\n");
-        exit(1);
+        wprintw(display_win, "Error: start shm_manager and create shared memory first.\n");
+        wrefresh(display_win);
+        endwin();
+        return 1;
     }
 
-    //Attach shared memory
     shm = (SharedMemory *)shmat(shmid, NULL, 0);
     if (shm == (void *)-1) {
-        perror("Failed to attach shared memory");
-        exit(1);
+        perror("shmat");
+        endwin();
+        return 1;
     }
 
-    //Get semaphore
     semid = get_semaphore(SEM_KEY);
     if (semid == -1) {
-        printf("Semaphore not found! Please start shared memory manager first.\n");
+        wprintw(display_win, "Semaphore not found! Run shm_manager first.\n");
+        wrefresh(display_win);
         cleanup();
-        exit(1);
+        endwin();
+        return 1;
     }
 
-    printf("Connected to shared memory.\n");
+    wprintw(display_win, "Connected to shared memory.\n");
+    wrefresh(display_win);
 
-    //Create socket
+    //--------------------------------------------------
+    //Create socket and connect to server
+    //--------------------------------------------------
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (client_socket == -1) {
-        perror("Socket creation failed");
+        perror("socket");
         cleanup();
-        exit(1);
+        endwin();
+        return 1;
     }
 
-    //Configure server address
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_port   = htons(SERVER_PORT);
 
     if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
-        printf("Invalid server address\n");
+        wprintw(display_win, "Invalid server address: %s\n", server_ip);
+        wrefresh(display_win);
         cleanup();
-        exit(1);
+        endwin();
+        return 1;
     }
 
-    //Connect to server
-    printf("Connecting to server at %s:%d...\n", server_ip, SERVER_PORT);
+    wprintw(display_win, "Connecting to server at %s:%d...\n",
+            server_ip, SERVER_PORT);
+    wrefresh(display_win);
 
-    if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        printf("Connection to server failed. Is server running?\n");
+    if (connect(client_socket,
+                (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        perror("connect");
+        wprintw(display_win, "Connection to server failed.\n");
+        wrefresh(display_win);
         cleanup();
-        exit(1);
+        endwin();
+        return 1;
     }
 
-    printf("Connected to server successfully!\n\n");
-    printf("Commands: Type 'exit' to quit, 'total' to request total display\n\n");
+    wprintw(display_win, "Connected to server successfully!\n");
+    wrefresh(display_win);
 
-    //Main client loop
-    while (1) {
-        //Get client data
+    //--------------------------------------------------
+    //Main ncurses loop
+    //--------------------------------------------------
+    for (;;) {
+        //Reset command window for menu
+        reset_input_window();
+        nodelay(input_win, FALSE);   //blocking input
+
+        mvwprintw(input_win, 1, 2,
+                  "[F1]=Exit  [F2]=Total  [Enter]=New client");
+        wrefresh(input_win);
+
+        int ch = wgetch(input_win);
+
+        if (ch == KEY_F(1)) {
+            memset(&msg, 0, sizeof(msg));
+            msg.signal = SIGNAL_F1;
+            send(client_socket, &msg, sizeof(msg), 0);
+            wprintw(display_win, "\nF1 pressed — closing client.\n");
+            wrefresh(display_win);
+            break;
+        } else if (ch == KEY_F(2)) {
+            memset(&msg, 0, sizeof(msg));
+            msg.signal = SIGNAL_F2;
+            send(client_socket, &msg, sizeof(msg), 0);
+            wprintw(display_win, "\nF2 pressed — total requested from server.\n");
+            wrefresh(display_win);
+            continue;   //back to command menu
+        }
+
+        //Any other key: collect new client data
+        memset(&msg, 0, sizeof(msg));
+        msg.signal = 0;
+
         get_client_data(&msg);
-        msg.signal = 0;  //Normal data message
 
-        //Send message to server
-        if (send(client_socket, &msg, sizeof(ClientMessage), 0) == -1) {
-            perror("Failed to send data to server");
-            cleanup();
-            exit(1);
+        if (send(client_socket, &msg, sizeof(msg), 0) == -1) {
+            perror("send");
+            wprintw(display_win, "\nFailed to send data to server.\n");
+            wrefresh(display_win);
+            break;
         }
 
-        printf("\nClient data sent successfully!\n");
+        wprintw(display_win, "\nClient data sent successfully.\n");
+        wrefresh(display_win);
 
-        //Ask if more data needs to be entered
-        printf("\nEnter more client data? (y/n/total/exit): ");
-        char input[20];
-        fgets(input, sizeof(input), stdin);
-        input[strcspn(input, "\n")] = 0;
+        //Ask if the user wants to enter another client
+        reset_input_window();
+        wprintw(input_win, "Enter more client data? (y/n): ");
+        wrefresh(input_win);
 
-        if (strlen(input) > 0) {
-            if (strcmp(input, "exit") == 0) {
-                //Send F1 signal
-                memset(&msg, 0, sizeof(ClientMessage));
-                msg.signal = SIGNAL_F1;
-                send(client_socket, &msg, sizeof(ClientMessage), 0);
-                printf("Exiting...\n");
-                break;
-            } else if (strcmp(input, "total") == 0) {
-                //Send F2 signal
-                memset(&msg, 0, sizeof(ClientMessage));
-                msg.signal = SIGNAL_F2;
-                send(client_socket, &msg, sizeof(ClientMessage), 0);
-                printf("Total display requested\n\n");
-                continue;
-            }
+        echo();
+        wgetnstr(input_win, cont_input, sizeof(cont_input) - 1);
+        noecho();
 
-            choice = input[0];
-            if (choice != 'y' && choice != 'Y') {
-                break;
-            }
+        //If user just hits ENTER (empty), keep going
+        if (cont_input[0] == '\0') {
+            continue;
+        }
+
+        if (cont_input[0] != 'y' && cont_input[0] != 'Y') {
+            break;
         }
     }
 
-    printf("Exiting client program...\n");
     cleanup();
-
+    endwin();
     return 0;
 }
 
 //
 //FUNCTION     : cleanup
-//DESCRIPTION  : Cleans up resources
+//DESCRIPTION  : Detaches shared memory and closes the client socket.
 //PARAMETERS   : None
 //RETURNS      : Nothing
 //
-void cleanup() {
+void cleanup(void)
+{
     if (shm != NULL) {
         shmdt(shm);
+        shm = NULL;
     }
     if (client_socket != -1) {
         close(client_socket);
+        client_socket = -1;
     }
 }
 
 //
 //FUNCTION     : validate_name
-//DESCRIPTION  : Checks if name contains only letters and spaces
+//DESCRIPTION  : Checks if a name contains only letters and spaces.
 //PARAMETERS   : char *name - name string to validate
-//RETURNS      : 1 if valid, 0 if invalid
+//RETURNS      : 1 if valid, 0 otherwise
 //
-int validate_name(char *name) {
+int validate_name(char *name)
+{
     if (strlen(name) == 0) {
         return 0;
     }
 
-    for (int i = 0; i < strlen(name); i++) {
-        if (!isalpha(name[i]) && name[i] != ' ') {
+    for (int i = 0; i < (int)strlen(name); i++) {
+        if (!isalpha((unsigned char)name[i]) && name[i] != ' ') {
             return 0;
         }
     }
@@ -179,40 +260,58 @@ int validate_name(char *name) {
 
 //
 //FUNCTION     : validate_age
-//DESCRIPTION  : Checks if age is within valid range
+//DESCRIPTION  : Checks if age is within valid range.
 //PARAMETERS   : int age - age to validate
-//RETURNS      : 1 if valid, 0 if invalid
+//RETURNS      : 1 if valid, 0 otherwise
 //
-int validate_age(int age) {
-    return age >= MIN_AGE && age <= MAX_AGE;
+int validate_age(int age)
+{
+    return (age >= MIN_AGE && age <= MAX_AGE);
 }
 
 //
 //FUNCTION     : get_client_data
-//DESCRIPTION  : Gets client and trip information from user
+//DESCRIPTION  : Uses ncurses to gather name, age, address,
+//              trip choice and number of people from user,
+//              reading available trips from shared memory.
 //PARAMETERS   : ClientMessage *msg - structure to store client data
 //RETURNS      : Nothing
 //
-void get_client_data(ClientMessage *msg) {
+void get_client_data(ClientMessage *msg)
+{
     char fullName[MAX_FULLNAME];
     char *token;
     char input[200];
 
+    //--------------------------------------------------
     //Get first and last name
+    //--------------------------------------------------
     while (1) {
-        printf("\nEnter client name (First Last): ");
-        fgets(fullName, sizeof(fullName), stdin);
-        fullName[strcspn(fullName, "\n")] = 0;
+        reset_input_window();
+        wprintw(input_win, "Enter client name (First Last): ");
+        wrefresh(input_win);
+
+        echo();
+        wgetnstr(input_win, fullName, sizeof(fullName) - 1);
+        noecho();
+
+        fullName[strcspn(fullName, "\n")] = '\0';
 
         if (!validate_name(fullName)) {
-            printf("Invalid name! Use only letters and spaces.\n");
+            wprintw(input_win,
+                    "\nInvalid name! Use only letters and spaces.\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         //Split into first and last name
         token = strtok(fullName, " ");
         if (token == NULL) {
-            printf("Please enter both first and last name!\n");
+            wprintw(input_win,
+                    "\nPlease enter both first and last name!\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
         strncpy(msg->firstName, token, MAX_NAME - 1);
@@ -220,7 +319,10 @@ void get_client_data(ClientMessage *msg) {
 
         token = strtok(NULL, " ");
         if (token == NULL) {
-            printf("Please enter both first and last name!\n");
+            wprintw(input_win,
+                    "\nPlease enter both first and last name!\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
         strncpy(msg->lastName, token, MAX_NAME - 1);
@@ -229,77 +331,122 @@ void get_client_data(ClientMessage *msg) {
         break;
     }
 
+    //--------------------------------------------------
     //Get age
+    //--------------------------------------------------
     while (1) {
-        printf("Enter age: ");
-        fgets(input, sizeof(input), stdin);
+        reset_input_window();
+        wprintw(input_win, "Enter age: ");
+        wrefresh(input_win);
+
+        echo();
+        wgetnstr(input_win, input, sizeof(input) - 1);
+        noecho();
 
         if (sscanf(input, "%d", &msg->age) != 1) {
-            printf("Invalid input! Please enter a number.\n");
+            wprintw(input_win,
+                    "\nInvalid input! Please enter a number.\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         if (!validate_age(msg->age)) {
-            printf("Invalid age! Please enter a value between %d and %d.\n",
-                   MIN_AGE, MAX_AGE);
+            wprintw(input_win,
+                    "\nInvalid age! Please enter a value between %d and %d.\n",
+                    MIN_AGE, MAX_AGE);
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         break;
     }
 
+    //--------------------------------------------------
     //Get address
+    //--------------------------------------------------
     while (1) {
-        printf("Enter address: ");
-        fgets(msg->address, MAX_ADDRESS, stdin);
-        msg->address[strcspn(msg->address, "\n")] = 0;
+        reset_input_window();
+        wprintw(input_win, "Enter address: ");
+        wrefresh(input_win);
+
+        echo();
+        wgetnstr(input_win, msg->address, MAX_ADDRESS - 1);
+        noecho();
+        msg->address[strcspn(msg->address, "\n")] = '\0';
 
         if (strlen(msg->address) == 0) {
-            printf("Address cannot be empty!\n");
+            wprintw(input_win, "\nAddress cannot be empty!\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         break;
     }
 
+    //--------------------------------------------------
     //Display available trips from shared memory
-    printf("\n=== Available Trips ===\n");
+    //--------------------------------------------------
+    wprintw(display_win, "\n=== Available Trips ===\n");
+    wrefresh(display_win);
 
     sem_lock(semid);
 
     if (shm->tripCount == 0) {
-        printf("No trips available!\n");
+        wprintw(display_win, "\nNo trips available!\n");
+        wrefresh(display_win);
         sem_unlock(semid);
         cleanup();
+        endwin();
         exit(1);
     }
 
     for (int i = 0; i < shm->tripCount; i++) {
         if (shm->trips[i].active) {
-            printf("%d. %s - $%.2f\n", i + 1,
-                   shm->trips[i].destination,
-                   shm->trips[i].price);
+            wprintw(display_win, "%d. %s - $%.2f\n",
+                    i + 1,
+                    shm->trips[i].destination,
+                    shm->trips[i].price);
         }
     }
+    wrefresh(display_win);
 
+    //--------------------------------------------------
+    //Select trip
+    //--------------------------------------------------
     int tripChoice;
     while (1) {
-        printf("Select trip number: ");
-        fgets(input, sizeof(input), stdin);
+        reset_input_window();
+        wprintw(input_win, "Select trip number: ");
+        wrefresh(input_win);
+
+        echo();
+        wgetnstr(input_win, input, sizeof(input) - 1);
+        noecho();
 
         if (sscanf(input, "%d", &tripChoice) != 1) {
-            printf("Invalid input! Please enter a number.\n");
+            wprintw(input_win,
+                    "\nInvalid input! Please enter a number.\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
-        if (tripChoice < MIN_TRIP || tripChoice > shm->tripCount ||
+        if (tripChoice < MIN_TRIP ||
+            tripChoice > shm->tripCount ||
             !shm->trips[tripChoice - 1].active) {
-            printf("Invalid trip selection!\n");
+            wprintw(input_win, "\nInvalid trip selection!\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         //Copy trip information
-        strncpy(msg->destination, shm->trips[tripChoice - 1].destination, MAX_NAME - 1);
+        strncpy(msg->destination,
+                shm->trips[tripChoice - 1].destination,
+                MAX_NAME - 1);
         msg->destination[MAX_NAME - 1] = '\0';
         msg->tripPrice = shm->trips[tripChoice - 1].price;
 
@@ -308,24 +455,51 @@ void get_client_data(ClientMessage *msg) {
 
     sem_unlock(semid);
 
+    //--------------------------------------------------
     //Get number of people
+    //--------------------------------------------------
     while (1) {
-        printf("Enter number of people: ");
-        fgets(input, sizeof(input), stdin);
+        reset_input_window();
+        wprintw(input_win, "Enter number of people: ");
+        wrefresh(input_win);
+
+        echo();
+        wgetnstr(input_win, input, sizeof(input) - 1);
+        noecho();
 
         if (sscanf(input, "%d", &msg->numPeople) != 1) {
-            printf("Invalid input!\n");
+            wprintw(input_win, "\nInvalid input!\n");
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         if (msg->numPeople < MIN_PEOPLE) {
-            printf("Number of people must be at least %d!\n", MIN_PEOPLE);
+            wprintw(input_win,
+                    "\nNumber of people must be at least %d!\n",
+                    MIN_PEOPLE);
+            wrefresh(input_win);
+            napms(1000);
             continue;
         }
 
         //Calculate total price
         msg->tripPrice *= msg->numPeople;
-
         break;
     }
+}
+
+//
+//FUNCTION     : reset_input_window
+//DESCRIPTION  : Clears and redraws the input window box, then
+//              positions the cursor inside the border.
+//PARAMETERS   : None
+//RETURNS      : Nothing
+//
+void reset_input_window(void)
+{
+    werase(input_win);
+    box(input_win, 0, 0);
+    wmove(input_win, 1, 1);
+    wrefresh(input_win);
 }

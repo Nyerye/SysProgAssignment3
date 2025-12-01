@@ -1,12 +1,12 @@
 # Main Target
 bin/shm_manager : obj/shm_manager.o obj/common.o
-	$(CC) obj/shm_manager.o obj/common.o -o bin/shm_manager
+	$(CC) obj/shm_manager.o obj/common.o -lncurses -o bin/shm_manager
 
 bin/server : obj/server.o obj/common.o
-	$(CC) obj/server.o obj/common.o -o bin/server
+	$(CC) obj/server.o obj/common.o -lncurses -o bin/server
 
 bin/client : obj/client.o obj/common.o
-	$(CC) obj/client.o obj/common.o -o bin/client
+	$(CC) obj/client.o obj/common.o -lncurses -o bin/client
 
 # Object files
 obj/shm_manager.o : src/shm_manager.c

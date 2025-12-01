@@ -51,6 +51,10 @@ typedef struct {
     Trip trips[MAX_TRIPS];
 } SharedMemory;
 
+//NCURSES window dimensions
+#define DISPLAY_HEIGHT 18
+#define INPUT_HEIGHT 6
+
 //Client message structure for socket communication
 typedef struct {
     int clientId;           //Client identifier
@@ -77,5 +81,6 @@ void sem_unlock(int semid);
 int create_semaphore(key_t key);
 int get_semaphore(key_t key);
 void remove_semaphore(int semid);
+void reset_input_window(void);
 
 #endif //IPC_SHARED_H
